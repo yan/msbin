@@ -1,5 +1,17 @@
 #!/usr/bin/env ruby
 
+require 'msbin_types'
+
+$indent = 0
+def write_xml(s, increase=1)
+	$indent += increase	
+	if $indent < 0
+		$indent = 0
+	end
+	indent = "  "*$indent
+	#"(#{$indent} #{increase}) 
+	puts "#{indent}#{s}"
+end
 
 def read_byte(handle)
    return handle.read(1)[0]
@@ -12,7 +24,7 @@ def read_int31(handle)
 	end
 
 	byte = read_byte(handle)
-	puts "#{val.to_s(16)} #{byte.to_s(16)}"
+	#puts "#{val.to_s(16)} #{byte.to_s(16)}"
 
 	val <<= 8
 	val  |= (byte = read_byte(handle))
@@ -29,12 +41,18 @@ def read_string(handle)
 	return str
 end
 
+$element_stack = []
+
 module MSBIN
 	class Record
-		@RECORDS = []
+		RECORDS = []
 		
 		def self.inherited(klass)
-			@RECORDS << klass
+			Record::RECORDS << klass
+		end
+
+		def self.is_attribute?(type)
+			nil != Record::RECORDS.select {|klass| klass.to_s =~ /Attribute$/}.find {|klass| klass.record_type === type}
 		end
 
 		def type_of?(type)
@@ -43,15 +61,15 @@ module MSBIN
 
 		def self.MakeRecord(handle)
 			record_type = read_byte(handle)
-			ret = nil
-			@RECORDS.each do |klass|
-				if klass.record_type === record_type
-					#TODO: move the 2-arg initializer to the base class somehow
-					ret = klass.new(handle, record_type)
-				end
+			klass = Record::RECORDS.find{|klass| klass.record_type === record_type}
+			#TODO: move the 2-arg initializer to the base class somehow
+			ret = klass.new(handle, record_type)
+			raise "Unsupported type: 0x#{record_type.to_s(16)}" if not ret
+
+			if ret.class.to_s =~ /Element$/ and ret.class.to_s !~ /EndElement$/
+				$element_stack.push ret
 			end
-			raise record_type.to_s(16) if not ret
-			puts "Returning #{ret}"
+
 			ret
 		end
 	end
@@ -63,40 +81,70 @@ module MSBIN
 			return 0x5e .. 0x77
 		end
 
+		attr_accessor :name
+
 		def initialize(handle, record_type)
-			@name = read_string(handle)
+			@name = "#{(record_type-self.class.record_type.first+?a).chr}:" + read_string(handle)
 			@record_type = record_type
-			@attributes = Record.MakeRecord(handle)
+			@attributes = []
+
+			loop do
+				where = handle.pos
+				next_type = read_byte(handle)
+				handle.seek(where)
+
+				break if not Record.is_attribute? next_type
+				@attributes << Record.MakeRecord(handle)
+			end
+
 		end
 
 		def to_s
-			"<#{(?a+@record_type-self.class.record_type.first).chr}:#{@name} #{@attributes}>"
+			attribs = ""
+			if @attributes
+				attribs = " #{@attributes}"
+			end
+			"<#{@name}#{attribs}>"
 		end
 	end
 
 	class PrefixDictionaryElement < Record
-		attr :children
+		attr_accessor :attributes
 
 		def self.record_type
 			0x44 .. 0x5D
 		end
 		
 		def initialize(handle, record_type)
-			@children = []
+			@attributes = []
 			@record_type = record_type
 
 			# read name
 			val = read_int31(handle)
-			@name = "str#{val}" # handle.read(val)
+			@name = "#{MSBIN_DictionaryStrings[val]}" # handle.read(val)
 			# TODO fill proper string names
 			#puts "got name #{@name}"
 
-			# read attributes
-			@children = Record.MakeRecord(handle)
+			loop do
+				where = handle.pos
+				next_type = read_byte(handle)
+				handle.seek(where)
+
+				break if not Record.is_attribute? next_type
+				@attributes << Record.MakeRecord(handle)
+			end
+		end
+
+		def name
+			"#{(?a+@record_type-self.class.record_type.first).chr}:#{@name}"
 		end
 
 		def to_s
-			"<#{(?a+@record_type-self.class.record_type.first).chr}"
+			attribs = ""
+			if @attributes
+				attribs = " #{@attributes}"
+			end
+			"<#{(?a+@record_type-self.class.record_type.first).chr}:#{@name}#{attribs}>"
 		end
 	end
 
@@ -107,7 +155,7 @@ module MSBIN
 
 		def initialize(handle, record_type)
 			val = read_int31(handle)
-			@name = "str#{val}"
+			@name = "#{MSBIN_DictionaryStrings[val]}"
 			@value = Record.MakeRecord(handle)
 			@record_type = record_type
 		end
@@ -123,7 +171,7 @@ module MSBIN
 		# TODO Isolate classes that do DictionaryStrings
 		# TODO: the value will be ' xmlns="@{value}"'
 		def initialize(handle, record_type)
-			@value = "str#{read_long(handle)}"
+			@value = "#{MSBIN_DictionaryStrings[read_long(handle)]}"
 		end
 
 		def to_s
@@ -138,11 +186,11 @@ module MSBIN
 		
 		def initialize(handle, record_type)
 			@prefix = read_string(handle)
-			@attributes = "str#{read_int31(handle)}"#Record.MakeRecord(handle)
+			@attributes = "#{MSBIN_DictionaryStrings[read_int31(handle)]}"#Record.MakeRecord(handle)
 		end
 
 		def to_s
-			" xmlns:#{@prefix}=\"#{@attributes}"
+			" xmlns:#{@prefix}=\"#{@attributes}\""
 		end
 	end
 
@@ -189,7 +237,19 @@ module MSBIN
 
 		def initialize(handle, record_type)
 			@name = read_string(handle)
-			@attribs = Record.MakeRecord(handle)
+			@attributes = []#Record.MakeRecord(handle)
+			loop do
+				where = handle.pos
+				next_type = read_byte(handle)
+				handle.seek(where)
+
+				break if not Record.is_attribute? next_type
+				@attributes << Record.MakeRecord(handle)
+			end
+		end
+
+		def name
+			@name
 		end
 
 		def to_s
@@ -211,22 +271,28 @@ module MSBIN
 		def initialize(handle, record_type)
 			#@text = read_string(handle)
 		end
+
+		def to_s; "false"; end
 	end
 
 	class OneText < Record
 		def self.record_type; 0x82; end
 
 		def initialize(handle, record_type)
-			@text = "1"
+			#@text = "1"
 		end
+
+		def to_s; "1"; end
 	end
 
 	class OneTextWithEndElement < Record
 		def self.record_type; 0x83; end
 
 		def initialize(handle, record_type)
-			@text = "1"
+			#@text = "1"
 		end
+
+		def to_s; "1"; end
 	end
 
 	# TODO: Parse this better
@@ -234,7 +300,35 @@ module MSBIN
 		def self.record_type; 0x97; end
 
 		def initialize(handle, record_type)
-			@date_date = handle.read(8)
+			# TODO: validate it
+			@date_date 
+			val = handle.read(8).unpack("Q")[0]
+			@tz = val & 0xff
+			val >>= 2
+
+			# to microseconds
+			val /= 10
+
+			# to seconds
+			val /= (10**6)
+
+			# seconds since year 1 until epoch
+			start = Time.utc(1, "jan", 1, 0, 0, 0, 0)
+			epoch = Time.at(0)
+			# seconds since 0
+			val -= (epoch - start)
+
+			# val is now epoch
+			# not sure if this is correct, but it'll do for now
+			@value = Time.at(val)
+		end
+
+		def to_s
+			if @value.hour == 0 and @value.minutes == 0 and @value.seconds == 0
+				return @value.strftime("%Y-%m-%d")
+			else
+				return @value.strftime("%Y-%m-%dT%H:%M:%S")
+			end
 		end
 	end
 
@@ -245,6 +339,10 @@ module MSBIN
 			@length = handle.read(1)[0]
 			@text = handle.read(@length)
 		end
+
+		def to_s
+			"#{@text}"
+		end
 	end
 
 	# TODO: Clean up the end element
@@ -253,7 +351,11 @@ module MSBIN
 
 		def initialize(handle, record_type)
 			@length = handle.read(1)[0]
-			@text = handle.read(@length)
+			@value = handle.read(@length)
+		end
+
+		def to_s
+			"#{@value}"
 		end
 	end
 
@@ -261,18 +363,24 @@ module MSBIN
 		def self.record_type; 0xac; end
 
 		def initialize(handle, record_type)
-			@text = handle.read(16).unpack('H*')
-			puts "Got UUID: #{@text}"
+			@text = handle.read(16).unpack('VvvC*')
+		end
+
+		def to_s
+			return ("%08x-%04x-%04x-" % [@text[0], @text[1], @text[2]])+(("%02x"*6) % [@text[3..-1]])
 		end
 	end
 
 	# TODO: Separate this
-	class UniqueIdText < Record
+	class UniqueIdTextWithEndElement < Record
 		def self.record_type; 0xad; end
 
 		def initialize(handle, record_type)
-			@text = handle.read(16).unpack('H*')
-			puts "Got UUID: #{@text}"
+			#@text = handle.read(16).unpack('H*')
+			@text = handle.read(16).unpack('VvvC*')
+		end
+		def to_s
+			return ("%08x-%04x-%04x-" % [@text[0], @text[1], @text[2]])+(("%02x"*6) % @text[3..-1])
 		end
 	end
 
@@ -281,6 +389,10 @@ module MSBIN
 
 		def initialize(handle, record_type)
 		end
+
+		def to_s
+			"</#{$element_stack.pop.name}>"
+		end
 	end
 
 	class TrueTextWithEndElement < Record
@@ -288,7 +400,11 @@ module MSBIN
 
 		#TODO: return true as value
 		def initialize(handle, record_type)
-			@value = "true"
+			#@value = "true"
+		end
+
+		def to_s
+			"true"
 		end
 	end
 
@@ -298,6 +414,10 @@ module MSBIN
 		def initialize(handle, record_type)
 			@value = handle.read(1)
 		end
+
+		def to_s
+			@value[0].to_s
+		end
 	end
 
 	class Int8TextWithEndElement < Record
@@ -305,6 +425,10 @@ module MSBIN
 
 		def initialize(handle, record_type)
 			@value = handle.read(1)
+		end
+
+		def to_s
+			@value[0].to_s
 		end
 	end
 end

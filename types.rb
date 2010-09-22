@@ -2,21 +2,20 @@
 
 require 'msbin_types'
 
-$indent = 0
+$indent = -1
 def write_xml(s, increase=1)
-	$indent += increase	
-	if $indent < 0
-		$indent = 0
-	end
 	indent = "  "*$indent
 	#"(#{$indent} #{increase}) 
 	puts "#{indent}#{s}"
+	$indent += increase	
 end
 
 def read_byte(handle)
    return handle.read(1)[0]
 end
 
+# TODO: finish read_int31
+# TODO: bundle these in a module
 def read_int31(handle)
 	val = byte = read_byte(handle)
 	if byte & 0x7f
@@ -24,7 +23,6 @@ def read_int31(handle)
 	end
 
 	byte = read_byte(handle)
-	#puts "#{val.to_s(16)} #{byte.to_s(16)}"
 
 	val <<= 8
 	val  |= (byte = read_byte(handle))
@@ -45,32 +43,58 @@ $element_stack = []
 
 module MSBIN
 	class Record
-		RECORDS = []
-		
-		def self.inherited(klass)
-			Record::RECORDS << klass
-		end
+		@@records = []
 
-		def self.is_attribute?(type)
-			nil != Record::RECORDS.select {|klass| klass.to_s =~ /Attribute$/}.find {|klass| klass.record_type === type}
+		class << self
+			def inherited(klass)
+				@@records << klass
+			end
+	
+			def is_attribute?(type)
+				nil != @@records.select {|klass| klass.to_s =~ /Attribute$/}.find {|klass| klass.record_type === type}
+			end
+	
+			def Decode(handle)
+				while !handle.eof()
+					a = MakeRecord(handle)
+					indent = a.class == EndElement ? -1 : 0
+					write_xml a, indent
+			
+					if a.class.to_s =~ /WithEndElement$/# or ret.class == EndElement
+						write_xml("</#{($element_stack.pop).name}>", -1)
+					end
+				end
+			end
+	
+			def MakeRecord(handle)
+				record_type = read_byte(handle)
+				klass = @@records.find{|klass| klass.record_type === record_type}
+				raise "Unsupported type: 0x#{record_type.to_s(16)}" if not klass
+				#TODO: move the 2-arg initializer to the base class somehow
+				ret = klass.new(handle, record_type)
+	
+				if ret.class.to_s =~ /Element$/ and ret.class.to_s !~ /EndElement$/
+					$element_stack.push ret
+				end
+	
+				ret
+			end
+		end
+		
+		def get_attributes(handle)
+			@attributes = []
+			loop do
+				where = handle.pos
+				next_type = read_byte(handle)
+				handle.seek(where)
+
+				break if not Record.is_attribute? next_type
+				@attributes << Record.MakeRecord(handle)
+			end
 		end
 
 		def type_of?(type)
 			raise NotImplementedError
-		end
-
-		def self.MakeRecord(handle)
-			record_type = read_byte(handle)
-			klass = Record::RECORDS.find{|klass| klass.record_type === record_type}
-			#TODO: move the 2-arg initializer to the base class somehow
-			ret = klass.new(handle, record_type)
-			raise "Unsupported type: 0x#{record_type.to_s(16)}" if not ret
-
-			if ret.class.to_s =~ /Element$/ and ret.class.to_s !~ /EndElement$/
-				$element_stack.push ret
-			end
-
-			ret
 		end
 	end
 end
@@ -84,27 +108,31 @@ module MSBIN
 		attr_accessor :name
 
 		def initialize(handle, record_type)
+			$indent += 1
 			@name = "#{(record_type-self.class.record_type.first+?a).chr}:" + read_string(handle)
 			@record_type = record_type
 			@attributes = []
 
-			loop do
-				where = handle.pos
-				next_type = read_byte(handle)
-				handle.seek(where)
-
-				break if not Record.is_attribute? next_type
-				@attributes << Record.MakeRecord(handle)
-			end
-
+			get_attributes(handle)
 		end
 
 		def to_s
-			attribs = ""
-			if @attributes
-				attribs = " #{@attributes}"
-			end
+			attribs = @attributes ? " #{@attributes}" : ""
 			"<#{@name}#{attribs}>"
+		end
+	end
+
+	class PrefixAttribute < Record
+		def self.record_type; 0x26 .. 0x3f; end
+
+		def initialize(handle, record_type)
+			@name = "#{(record_type-self.class.record_type.first+?a).chr}:" + read_string(handle)
+			@record_type = record_type
+			@value = Record.MakeRecord(handle)
+		end
+
+		def to_s
+			" #{@name}=\"#{@value}\""
 		end
 	end
 
@@ -116,6 +144,7 @@ module MSBIN
 		end
 		
 		def initialize(handle, record_type)
+			$indent += 1
 			@attributes = []
 			@record_type = record_type
 
@@ -125,14 +154,7 @@ module MSBIN
 			# TODO fill proper string names
 			#puts "got name #{@name}"
 
-			loop do
-				where = handle.pos
-				next_type = read_byte(handle)
-				handle.seek(where)
-
-				break if not Record.is_attribute? next_type
-				@attributes << Record.MakeRecord(handle)
-			end
+			get_attributes(handle)
 		end
 
 		def name
@@ -140,10 +162,7 @@ module MSBIN
 		end
 
 		def to_s
-			attribs = ""
-			if @attributes
-				attribs = " #{@attributes}"
-			end
+			attribs = @attributes ? " #{@attributes}" : ""
 			"<#{(?a+@record_type-self.class.record_type.first).chr}:#{@name}#{attribs}>"
 		end
 	end
@@ -236,16 +255,9 @@ module MSBIN
 		def self.record_type; 0x40; end
 
 		def initialize(handle, record_type)
+			$indent += 1
 			@name = read_string(handle)
-			@attributes = []#Record.MakeRecord(handle)
-			loop do
-				where = handle.pos
-				next_type = read_byte(handle)
-				handle.seek(where)
-
-				break if not Record.is_attribute? next_type
-				@attributes << Record.MakeRecord(handle)
-			end
+			get_attributes(handle)
 		end
 
 		def name
@@ -253,7 +265,8 @@ module MSBIN
 		end
 
 		def to_s
-			"<#{@name} #{@attributes}>"
+			attribs = @attributes ? " #{@attributes}" : ""
+			"<#{@name}#{attribs}>"
 		end
 	end
 
@@ -263,16 +276,25 @@ module MSBIN
 	end
 
 
+	class TrueText < Record
+		def self.record_type; 0x86; end
+		def initialize(handle, record_type); end
+		def to_s; "true"; end
+	end
+
+	class TrueTextWithEndElement < TrueText
+		def self.record_type; 0x87; end
+	end
+
 	# TODO: make this derive from TextRecord
-	class FalseTextWithEndElement < Record
-		def self.record_type; 0x85; end
-
-		# TODO: Set a to_s to return false, that's it.
-		def initialize(handle, record_type)
-			#@text = read_string(handle)
-		end
-
+	class FalseText < Record
+		def self.record_type; 0x84; end
+		def initialize(handle, record_type); end
 		def to_s; "false"; end
+	end
+	
+	class FalseTextWithEndElement < FalseText
+		def self.record_type; 0x85; end
 	end
 
 	class OneText < Record
@@ -285,14 +307,8 @@ module MSBIN
 		def to_s; "1"; end
 	end
 
-	class OneTextWithEndElement < Record
+	class OneTextWithEndElement < OneText
 		def self.record_type; 0x83; end
-
-		def initialize(handle, record_type)
-			#@text = "1"
-		end
-
-		def to_s; "1"; end
 	end
 
 	# TODO: Parse this better
@@ -332,6 +348,23 @@ module MSBIN
 		end
 	end
 
+	class DictionaryText < Record
+		def self.record_type; 0xaa; end
+
+		def initialize(handle, record_type)
+			val = read_int31(handle)
+			@value = "#{MSBIN_DictionaryStrings[val]}" # handle.read(val)
+		end
+
+		def to_s
+			@value
+		end
+	end
+
+	class DictionaryTextWithEndElement < DictionaryText
+		def self.record_type; 0xab; end
+	end
+
 	class Chars8Text < Record
 		def self.record_type; 0x98; end
 
@@ -355,7 +388,7 @@ module MSBIN
 		end
 
 		def to_s
-			"#{@value}"
+			"#{@value}".gsub('"','&quot;').gsub('&','&amp;').gsub('<','&lt;').gsub('>','&gt;').gsub("'",'&apos;')
 		end
 	end
 
@@ -363,25 +396,25 @@ module MSBIN
 		def self.record_type; 0xac; end
 
 		def initialize(handle, record_type)
-			@text = handle.read(16).unpack('VvvC*')
+			@uuid = handle.read(16).unpack('VvvC*')
 		end
 
 		def to_s
-			return ("%08x-%04x-%04x-" % [@text[0], @text[1], @text[2]])+(("%02x"*6) % [@text[3..-1]])
+			return ("%08x-%04x-%04x-" % [@uuid[0], @uuid[1], @uuid[2]])+(("%02x"*6) % @uuid[3..-1])
 		end
 	end
 
 	# TODO: Separate this
-	class UniqueIdTextWithEndElement < Record
+	class UniqueIdTextWithEndElement < UniqueIdText
 		def self.record_type; 0xad; end
 
-		def initialize(handle, record_type)
-			#@text = handle.read(16).unpack('H*')
-			@text = handle.read(16).unpack('VvvC*')
-		end
-		def to_s
-			return ("%08x-%04x-%04x-" % [@text[0], @text[1], @text[2]])+(("%02x"*6) % @text[3..-1])
-		end
+		#def initialize(handle, record_type)
+			##@text = handle.read(16).unpack('H*')
+			#@text = handle.read(16).unpack('VvvC*')
+		#end
+		#def to_s
+			#return ("%08x-%04x-%04x-" % [@text[0], @text[1], @text[2]])+(("%02x"*6) % @text[3..-1])
+		#end
 	end
 
 	class EndElement < Record
@@ -395,28 +428,15 @@ module MSBIN
 		end
 	end
 
-	class TrueTextWithEndElement < Record
-		def self.record_type; 0x87; end
-
-		#TODO: return true as value
-		def initialize(handle, record_type)
-			#@value = "true"
-		end
-
-		def to_s
-			"true"
-		end
-	end
-
 	class Int8Text < Record
 		def self.record_type; 0x88; end
 
 		def initialize(handle, record_type)
-			@value = handle.read(1)
+			@value = handle.read(1)[0]
 		end
 
 		def to_s
-			@value[0].to_s
+			@value.to_s
 		end
 	end
 
@@ -424,11 +444,35 @@ module MSBIN
 		def self.record_type; 0x89; end
 
 		def initialize(handle, record_type)
-			@value = handle.read(1)
+			@value = handle.read(1)[0]
 		end
 
 		def to_s
-			@value[0].to_s
+			@value.to_s
+		end
+	end
+
+	class Int16Text < Record
+		def self.record_type; 0x8a; end
+
+		def initialize(handle, record_type)
+			@value = handle.read(2).unpack("n")[0]
+		end
+
+		def to_s
+			@value.to_s
+		end
+	end
+
+	class Int16TextWithEndElement < Record
+		def self.record_type; 0x8b; end
+
+		def initialize(handle, record_type)
+			@value = handle.read(2).unpack("n")[0]
+		end
+
+		def to_s
+			@value.to_s
 		end
 	end
 end

@@ -4,7 +4,7 @@ require 'records'
 require 'types'
 
 if ARGV.size == 0
-	$stderr.write("Usage: #{$0} file.msbin\n")
+	$stderr.write("Usage: #{$0} [file.msbin|-]\n")
 	exit 1
 end
 
@@ -12,12 +12,7 @@ end
 def read_msbin(handle)
 	while !handle.eof()
 		a = MSBIN::Record.MakeRecord(handle)
-		indent = 0
-		if a.class == MSBIN::EndElement
-			indent = -1
-		else
-			indent = 1
-		end
+		indent = a.class == MSBIN::EndElement ? -1 : 0
 		write_xml a, indent
 
 		if a.class.to_s =~ /WithEndElement$/# or ret.class == EndElement
@@ -26,6 +21,18 @@ def read_msbin(handle)
 	end
 end
 
-f = File.new(ARGV[0], "rb")
-read_msbin(f)
+if ARGV[0] == '-'
+	f = $stdin
+else
+	f = File.new(ARGV[0], "rb")
+end
+
+# check if we have an http post, and consume headers
+if f.read(4) == "HTTP"
+	while f.readline().chomp != ""; end
+else
+	f.seek(0)
+end
+
+MSBIN::Record.Decode(f)
 #puts f

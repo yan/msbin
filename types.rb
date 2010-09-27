@@ -8,6 +8,10 @@ $indent = -1
 def write_xml(s, increase=1)
 	indent = "  "*$indent
 	puts "#{indent}#{s}"
+	if s.class.to_s =~ /WithEndElement$/
+		puts "#{indent}</#{$element_stack.pop.name}>"
+		increase = -1
+	end
 	$indent += increase	
 end
 
@@ -51,29 +55,27 @@ module MSBIN
 			end
 	
 			def is_attribute?(type)
-				nil != @@records.select {|klass| klass.to_s =~ /Attribute$/}.find {|klass| klass.record_type === type}
+				nil != @@records.find {|klass| klass.ancestors.include? Attribute and klass.record_type === type}
 			end
 	
-			def Decode(handle)
+			def DecodeStream(handle)
 				while !handle.eof()
 					a = MakeRecord(handle)
 					indent = a.class == EndElement ? -1 : 0
 					write_xml a, indent
-			
-					if a.class.to_s =~ /WithEndElement$/# or ret.class == EndElement
-						write_xml("</#{($element_stack.pop).name}>", -1)
-					end
 				end
 			end
 	
 			def MakeRecord(handle)
 				record_type = read_byte(handle)
 				klass = @@records.find{|klass| klass.record_type === record_type}
-				raise "Unsupported type: 0x#{record_type.to_s(16)}" if not klass
+				if not klass
+					raise "Unsupported type: 0x#{record_type.to_s(16)}"
+				end
 				#TODO: move the 2-arg initializer to the base class somehow
 				ret = klass.new(handle, record_type)
 	
-				if ret.class.to_s =~ /Element$/ and ret.class.to_s !~ /EndElement$/
+				if ret.is_a? Element and ret.class.to_s !~ /EndElement$/
 					$element_stack.push ret
 				end
 	
@@ -111,7 +113,9 @@ module MSBIN
 		end
 	end
 
-	class EndElement < Record
+	class Element < Record; end
+
+	class EndElement < Element
 		@record_type = 0x01
 
 		def to_s
@@ -119,7 +123,7 @@ module MSBIN
 		end
 	end
 
-	class CommentElement < Record
+	class CommentElement < Element
 		@record_type = 0x02
 
 		def initialize(handle, record_type)
@@ -128,10 +132,14 @@ module MSBIN
 	end
 
 	# TODO: Implement Array
-	class ArrayElement < Record
+	class ArrayElement < Element
 		@record_type = 0x03
+		@records = {
+			0xb5 => "Bool"
+		}
 
 		def initialize(handle, record_type)
+			element = Record.MakeRecord(handle)
 			raise "Array not implemented yet"
 		end
 	end
@@ -145,7 +153,7 @@ module MSBIN
 		end
 
 		def to_s
-			" #{@name}=\"#{@vlaue}\""
+			" #{@name}=\"#{@value}\""
 		end
 	end
 
@@ -165,7 +173,7 @@ module MSBIN
 		end
 	end
 
-	class ShortDictionaryAttribute < Record
+	class ShortDictionaryAttribute < Attribute
 		@record_type = 0x06
 
 		def initialize(handle, record_type)
@@ -179,7 +187,7 @@ module MSBIN
 		end
 	end
 
-	class DictionaryAttribute < Record
+	class DictionaryAttribute < Attribute
 		@record_type = 0x07
 
 		# TODO: Create a read_* method for dictionary strings
@@ -195,7 +203,7 @@ module MSBIN
 		end
 	end
 
-	class PrefixElement < Record
+	class PrefixElement < Element
 		@record_type = 0x5e .. 0x77
 
 		attr_accessor :name
@@ -215,7 +223,7 @@ module MSBIN
 		end
 	end
 
-	class PrefixAttribute < Record
+	class PrefixAttribute < Attribute
 		@record_type = 0x26 .. 0x3f
 
 		def initialize(handle, record_type)
@@ -229,7 +237,7 @@ module MSBIN
 		end
 	end
 
-	class PrefixDictionaryElement < Record
+	class PrefixDictionaryElement < Element
 		attr_accessor :attributes
 
 		@record_type = 0x44 .. 0x5D
@@ -258,7 +266,7 @@ module MSBIN
 		end
 	end
 
-	class PrefixDictionaryAttribute < Record
+	class PrefixDictionaryAttribute < Attribute
 		@record_type = 0x0c .. 0x25
 
 		def initialize(handle, record_type)
@@ -273,7 +281,7 @@ module MSBIN
 		end
 	end
 
-	class ShortDictionaryXmlnsAttribute < Record
+	class ShortDictionaryXmlnsAttribute < Attribute
 		@record_type = 0x0a
 
 		# TODO Isolate classes that do DictionaryStrings
@@ -287,7 +295,7 @@ module MSBIN
 		end
 	end
 
-	class DictionaryXmlnsAttribute < Record
+	class DictionaryXmlnsAttribute < Attribute
 		@record_type = 0X0b
 		
 		def initialize(handle, record_type)
@@ -300,7 +308,7 @@ module MSBIN
 		end
 	end
 
-	class ShortXmlnsAttribute < Record
+	class ShortXmlnsAttribute < Attribute
 		@record_type = 0x08
 
 		def initialize(handle, record_type)
@@ -312,7 +320,7 @@ module MSBIN
 		end
 	end
 
-	class XmlnsAttribute < Record
+	class XmlnsAttribute < Attribute
 		@record_type = 0x09
 
 		def initialize(handle, record_type)
@@ -325,7 +333,7 @@ module MSBIN
 		end
 	end
 
-	class ShortElement < Record
+	class ShortElement < Element
 		@record_type = 0x40
 
 		def initialize(handle, record_type)
@@ -359,8 +367,11 @@ module MSBIN
 		@record_type = 0x80
 		def to_s; "0"; end
 	end
-		
 
+	class ZeroTextWithEndElement < ZeroText
+		@record_type = 0x81
+	end
+		
 	class TrueText < TextRecord
 		@record_type = 0x86
 		def to_s; "true"; end
@@ -397,6 +408,7 @@ module MSBIN
 			# TODO: validate it
 			@date_date 
 			val = handle.read(8).unpack("Q")[0]
+
 			@tz = val & 0xff
 			val >>= 2
 
@@ -440,7 +452,7 @@ module MSBIN
 		@record_type = 0xab
 	end
 
-	class Chars8Text < Record
+	class Chars8Text < TextRecord
 		@record_type = 0x98
 
 		def initialize(handle, record_type)
@@ -455,7 +467,7 @@ module MSBIN
 		@record_type = 0x99
 	end
 
-	class Chars16Text < Record
+	class Chars16Text < TextRecord
 		@record_type = 0x9a
 
 		def initialize(handle, record_type)
@@ -470,7 +482,21 @@ module MSBIN
 		@record_type = 0x9b
 	end
 
-	class UniqueIdText < Record
+	class Chars32Text < TextRecord
+		@record_type = 0x9c
+
+		def initialize(hand,record_type)
+			require 'cgi'
+			length = handle.read(4).unpack("l")[0]
+			@value = CGI.escapeHTML(handle.read(length)).to_s
+		end
+	end
+
+	class Chars32TextWithEndElement < Chars32Text
+		@record_type = 0x9d
+	end
+
+	class UuIdText < TextRecord
 		@record_type = 0xac
 
 		def initialize(handle, record_type)
@@ -480,8 +506,42 @@ module MSBIN
 	end
 
 	# TODO: Separate this
-	class UniqueIdTextWithEndElement < UniqueIdText
+	class UuIdTextWithEndElement < UuIdText
 		@record_type = 0xad
+	end
+
+	class TimeSpanText < TextRecord
+		@record_type = 0xae
+
+		def initialize(handle, record_type)
+			@value = handle.read(8).unpack("q")[0]
+			if @value < 0
+				@sign = '-'; @value *= -1
+			end
+
+			ticks_in_sec = 10000000
+			@frac    = @value % ticks_in_sec; @value /= ticks_in_sec
+			@seconds = @value % 60; @value /= 60
+			@minutes = @value % 60; @value /= 60
+			@hours   = @value % 24; @value /= 24
+			@days    = @value
+		end
+
+		def to_s
+			if @days > 0 and @frac == 0
+				"#{@sign}%d.%02d:%02d:%02d" %    [@days, @hours, @minutes, @seconds]
+			elsif @days > 0 and @frac > 0
+				"#{@sign}%d.%02d:%02d:%02d:%d" % [@days, @hours, @minutes, @seconds, @frac]
+			elsif @days == 0 and @frac == 0
+				"#{@sign}%02d:%02d:%02d" %              [@hours, @minutes, @seconds]
+			else
+				"#{@sign}%02d:%02d:%02d.%d" %           [@hours, @minutes, @seconds, @frac]
+			end
+		end
+	end
+
+	class TimeSpanTextWithEndElement < TimeSpanText
+		@record_type = 0xaf
 	end
 
 	class Int8Text < TextRecord
@@ -559,9 +619,20 @@ module MSBIN
 	class DecimalText < TextRecord
 		@record_type = 0x94
 
-		# TODO: Implement DecimalText
 		def initialize(handle, record_type)
-			raise "Not implemented"
+			wReserved = handle.read(2).unpack("n")[0]
+			scale = handle.read(1)[0]
+			@sign = handle.read(1)[0] == 0 ? "" : "-"
+			@value = 0
+			2.downto(0).each {|n|
+				@value |= (handle.read(4).unpack("N")[0]) << 32*n
+				puts "#{@value.to_s 16}"
+			}
+			@value /= 10.0**scale
+		end
+
+		def to_s
+			"#{@sign}#{@value}"
 		end
 	end
 

@@ -34,5 +34,5 @@ else
 	f.seek(0)
 end
 
-MSBIN::Record.Decode(f)
+MSBIN::Record.DecodeStream(f)
 #puts f

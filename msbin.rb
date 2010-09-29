@@ -1,5 +1,8 @@
 #!/usr/bin/env ruby
 
+# by Yan Ivnitskiy
+#   yan@matasano.com
+
 require 'msbin/types'
 
 if ARGV.size == 0

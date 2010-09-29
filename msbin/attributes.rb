@@ -1,4 +1,9 @@
+#!/usr/bin/env ruby
+
 require 'msbin/record'
+
+# by Yan Ivnitskiy
+#   yan@matasano.com
 
 module MSBIN
 	class ShortAttribute < Record

@@ -1,0 +1,11 @@
+msbin reads a stream of Microsoft Binary XML (such as Silverlight
+messages) and writes its human-readable XML equivalent to stdout.
+
+All types should be implemented, but not all are tested. 
+
+To use:
+	./msbin.rb file.msbin
+	./msbin.rb - 
+
+Where file.msbin can be a file saved from burp using the 'copy to file'
+or a straight binary XML dump.

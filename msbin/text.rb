@@ -1,3 +1,7 @@
+#!/usr/bin/env ruby
+
+# by Yan Ivnitskiy
+#   yan@matasano.com
 
 module MSBIN
 	# Make this an ADT

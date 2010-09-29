@@ -8,19 +8,6 @@ if ARGV.size == 0
 	exit 1
 end
 
-
-def read_msbin(handle)
-	while !handle.eof()
-		a = MSBIN::Record.MakeRecord(handle)
-		indent = a.class == MSBIN::EndElement ? -1 : 0
-		write_xml a, indent
-
-		if a.class.to_s =~ /WithEndElement$/# or ret.class == EndElement
-			write_xml("</#{($element_stack.pop).name}>", -1)
-		end
-	end
-end
-
 if ARGV[0] == '-'
 	f = $stdin
 else

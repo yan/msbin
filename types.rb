@@ -41,9 +41,30 @@ def read_string(handle)
 	return str
 end
 
+def read_dictstring(handle)
+	val = read_int31(handle)
+	return MSBIN_DictionaryStrings[val]
+end
+
+require 'iconv'
+def from_unicode(str)
+	return Iconv.conv('UTF-8', 'UTF-16LE', str)
+end
+
 $element_stack = []
 
+	class Class
+		def make_this_with_endelement
+			cls = Class.new(self) do
+			end
+			puts cls.methods
+			Object.constant_set "TestTest", cls
+			puts "!!", self.record_type, cls, self.name
+			#cls = Class.new(
+		end
+	end
 module MSBIN
+
 	class Record
 		@@records = []
 
@@ -147,6 +168,8 @@ module MSBIN
 	class ShortAttribute < Record
 		@record_type = 0x04
 
+		make_this_with_endelement
+
 		def initialize(handle, record_type)
 			@name = read_string(handle)
 			@value = Record.MakeRecord(handle)
@@ -177,8 +200,7 @@ module MSBIN
 		@record_type = 0x06
 
 		def initialize(handle, record_type)
-			val = read_int31(handle)
-			@name = "#{MSBIN_DictionaryStrings[val]}" # handle.read(val)
+			@name = read_dictstring(handle)
 			@value = Record.MakeRecord(handle)
 		end
 
@@ -194,7 +216,7 @@ module MSBIN
 		# TODO: finalize the read_int31 function
 		def initialize(handle, record_type)
 			@prefix = read_string(handle)
-			@name = "#{MSBIN_DictionaryStrings[read_int31(handle)]}"
+			@name = read_dictstring(handle)
 			@value = Record.MakeRecord(handle)
 		end
 
@@ -248,8 +270,7 @@ module MSBIN
 			@record_type = record_type
 
 			# read name
-			val = read_int31(handle)
-			@name = "#{MSBIN_DictionaryStrings[val]}" # handle.read(val)
+			@name = read_dictstring(handle)
 			# TODO fill proper string names
 			#puts "got name #{@name}"
 
@@ -270,8 +291,7 @@ module MSBIN
 		@record_type = 0x0c .. 0x25
 
 		def initialize(handle, record_type)
-			val = read_int31(handle)
-			@name = "#{MSBIN_DictionaryStrings[val]}"
+			@name = read_dictstring(handle)
 			@value = Record.MakeRecord(handle)
 			@record_type = record_type
 		end
@@ -287,7 +307,7 @@ module MSBIN
 		# TODO Isolate classes that do DictionaryStrings
 		# TODO: the value will be ' xmlns="@{value}"'
 		def initialize(handle, record_type)
-			@value = "#{MSBIN_DictionaryStrings[read_long(handle)]}"
+			@value = read_dictstring(handle)
 		end
 
 		def to_s
@@ -300,7 +320,7 @@ module MSBIN
 		
 		def initialize(handle, record_type)
 			@prefix = read_string(handle)
-			@attributes = "#{MSBIN_DictionaryStrings[read_int31(handle)]}"#Record.MakeRecord(handle)
+			@attributes = read_dictstring(handle)
 		end
 
 		def to_s
@@ -443,8 +463,7 @@ module MSBIN
 		@record_type = 0xaa
 
 		def initialize(handle, record_type)
-			val = read_int31(handle)
-			@value = MSBIN_DictionaryStrings[val]
+			@value = read_dictstring(handle)
 		end
 	end
 
@@ -638,5 +657,178 @@ module MSBIN
 
 	class DecimalTextWithEndRecord < DecimalText
 		@record_type = 0x95
+	end
+
+	class UnicodeChars8Text < TextRecord
+		@record_type = 0xb6
+
+		def initialize(handle, record_type)
+			length = handle.read(1)[0]
+			@value = from_unicode(handle.read(length))
+		end
+	end
+
+	class UnicodeChars8TextWithEndElement < UnicodeChars8Text
+		@record_type = 0xb7
+	end
+
+	class UnicodeChars16Text < TextRecord
+		@record_type = 0xb8
+
+		def initialize(handle, record_type)
+			length = handle.read(2).unpack("n")[0]
+			@value = from_unicode(handle.read(length))
+		end
+	end
+
+	class UnicodeChars16TextWithEndElement < UnicodeChars16Text
+		@record_type = 0xb9
+	end
+
+	class UnicodeChars32Text < TextRecord
+		@record_type = 0xba
+
+		def initialize(handle, record_type)
+			length = handle.read(4).unpack("l")[0]
+			@value = from_unicode(handle.read(length))
+		end
+	end
+
+	class UnicodeChars32TextWithEndElement < UnicodeChars32Text
+		@record_type = 0xbb
+	end
+
+	class BoolText < TextRecord
+		@record_type = 0xb4
+
+		def initialize(handle, record_type)
+			val = handle.read(1)[0]
+			@value = val == 0 ? "false" : "true"
+		end
+	end
+
+	class BoolTextWithEndElement < BoolText
+		@record_type = 0xb5
+	end
+
+	class UInt64Text < TextRecord
+		@record_type = 0xb2
+
+		def initialize(handle, record_type)
+			@value = handle.read(8).unpack("Q")[0].to_s
+		end
+	end
+
+	class UInt64TextWithEndElement < UInt64Text
+		@record_type = 0xb3
+	end
+
+	class StartListText < TextRecord
+		@record_type = 0xa4
+
+		def initialize(handle, record_type)
+			@records = []
+			begin
+				record = Record.MakeRecord(handle)
+				@records << record
+			end until record.is_a?(EndListText)
+		
+			@value = @records.map{|x|x.strip}.join(" ")
+		end
+	end
+
+	class EndListText < TextRecord
+		@record_type = 0xa6
+		def to_s; ""; end
+	end
+
+	class EmptyText < TextRecord
+		@record_type = 0xa8
+		def to_s; ""; end
+	end
+
+	class EmptyTextWithEndElement < EmptyText
+		@record_type = 0xa9
+	end
+
+	class QNameDictionaryText < TextRecord
+		@record_type = 0xbc
+
+		def initialize(handle, record_type)
+			val = handle.read(4).unpack("L")[0]
+			@prefix = (((val >> 24) & 0xff) + ?a).chr
+			val &= 0x00ffffff
+			@value = "#{@prefix}:#{MSBIN_DictionaryStrings[val]}"
+		end
+	end
+
+	class QNameDictionaryTextWithEndElement < QNameDictionaryText
+		@record_type = 0xbd
+	end
+
+	class Bytes8Text < TextRecord
+		@record_type = 0x9e
+
+		# TODO: Rewrite all these custom reads to util funcs
+		def initialize(handle, record_type)
+			length = handle.read(1)[0]
+			bytes = handle.read(length)
+
+			require 'base64'
+			@value = Base64.b64encode(bytes).rstrip
+		end
+	end
+
+	class Bytes8TextWithEndElement < Bytes8Text
+		@record_type = 0x9f
+	end
+
+	class Bytes16Text < TextRecord
+		@record_type = 0xa0
+
+		# TODO: factor out everything but length
+		def initialize(handle, record_type)
+			length = handle.read(2).unpack("n")[0]
+			bytes = handle.read(length)
+
+			require 'base64'
+			@value = Base64.b64encode(bytes).rstrip
+		end
+	end
+
+	class Bytes16TextWithEndElement < Bytes16Text
+		@record_type = 0xa1
+	end
+
+	class Bytes32Text < TextRecord
+		@record_type = 0xa2
+
+		def initialize(handle, record_type)
+			length = handle.read(4).unpack("l")[0]
+			bytes = handle.read(length)
+
+			require 'base64'
+			@value = Base64.b64encode(bytes).rstrip
+		end
+	end
+
+	class Bytes32TextWithEndElement < Bytes32Text
+		@record_type = 0xa3
+	end
+
+	class DictionaryElement < Element
+		@record_type = 0x43
+
+		def initialize(handle, record_type)
+			@prefix = read_string(handle)
+			@name = read_dictstring(handle)
+
+			get_attributes(handle)
+		end
+
+		def to_s
+			attribs = @attributes ? " #{@attributes}" : ""
+			"<#{@prefix}:#{@name}#{attribs}>"
+		end
 	end
 end

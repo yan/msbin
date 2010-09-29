@@ -23,7 +23,6 @@ module MSBIN
 		def to_s; "true"; end
 	end
 
-	# TODO: make this derive from TextRecord
 	class FalseText < TextRecord
 		@record_type = 0x84
 		define_with_endelement
@@ -45,7 +44,7 @@ module MSBIN
 		def initialize(handle, record_type)
 			# TODO: validate it
 			@date_date 
-			val = handle.read(8).unpack("Q")[0]
+			val = read_int64(handle)
 
 			@tz = val & 0xff
 			val >>= 2
@@ -90,7 +89,7 @@ module MSBIN
 
 		def initialize(handle, record_type)
 			require 'cgi'
-			length = handle.read(1)[0]
+			length = read_int8(handle)
 			@value = CGI.escapeHTML(handle.read(length)).to_s
 		end
 	end
@@ -102,7 +101,7 @@ module MSBIN
 
 		def initialize(handle, record_type)
 			require 'cgi'
-			length = handle.read(2).unpack("n")[0]
+			length = read_int16(handle)
 			@value = CGI.escapeHTML(handle.read(length)).to_s
 		end
 	end
@@ -114,7 +113,7 @@ module MSBIN
 
 		def initialize(hand,record_type)
 			require 'cgi'
-			length = handle.read(4).unpack("l")[0]
+			length = read_int32(handle)
 			@value = CGI.escapeHTML(handle.read(length)).to_s
 		end
 	end
@@ -168,7 +167,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			@value = handle.read(1)[0].to_s
+			@value = read_int8(handle).to_s
 		end
 	end
 
@@ -178,7 +177,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			@value = handle.read(2).unpack("n")[0].to_s
+			@value = read_int16(handle).to_s
 		end
 	end
 
@@ -188,7 +187,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			@value = handle.read(4).unpack("l")[0].to_s
+			@value = read_int32(handle).to_s
 		end
 	end
 
@@ -198,7 +197,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			@value = handle.read(8).unpack("q")[0].to_s
+			@value = read_int64(handle).to_s
 		end
 	end
 
@@ -208,7 +207,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			@value = handle.read(4).unpack("g")[0].to_s
+			@value = read_float(handle).to_s
 		end
 	end
 
@@ -218,7 +217,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			@value = handle.read(8).unpack("E")[0].to_s
+			@value = read_double(handle).to_s
 		end
 	end
 
@@ -228,13 +227,12 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			wReserved = handle.read(2).unpack("n")[0]
-			scale = handle.read(1)[0]
-			@sign = handle.read(1)[0] == 0 ? "" : "-"
+			wReserved = read_int16(handle)
+			scale = read_int8(handle)
+			@sign = read_int8(handle) == 0 ? "" : "-"
 			@value = 0
 			2.downto(0).each {|n|
 				@value |= (handle.read(4).unpack("N")[0]) << 32*n
-				puts "#{@value.to_s 16}"
 			}
 			@value /= 10.0**scale
 		end
@@ -250,7 +248,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			length = handle.read(1)[0]
+			length = read_int8(handle)
 			@value = from_unicode(handle.read(length))
 		end
 	end
@@ -261,7 +259,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			length = handle.read(2).unpack("n")[0]
+			length = read_int16(handle)
 			@value = from_unicode(handle.read(length))
 		end
 	end
@@ -272,7 +270,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			length = handle.read(4).unpack("l")[0]
+			length = read_int32(handle)
 			@value = from_unicode(handle.read(length))
 		end
 	end
@@ -283,7 +281,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			val = handle.read(1)[0]
+			val = read_int8(handle)
 			@value = val == 0 ? "false" : "true"
 		end
 	end
@@ -294,6 +292,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
+			# unsigned
 			@value = handle.read(8).unpack("Q")[0].to_s
 		end
 	end
@@ -343,7 +342,7 @@ module MSBIN
 
 		# TODO: Rewrite all these custom reads to util funcs
 		def initialize(handle, record_type)
-			length = handle.read(1)[0]
+			length = read_int8(handle)
 			bytes = handle.read(length)
 
 			require 'base64'
@@ -358,7 +357,7 @@ module MSBIN
 
 		# TODO: factor out everything but length
 		def initialize(handle, record_type)
-			length = handle.read(2).unpack("n")[0]
+			length = read_int16(handle)
 			bytes = handle.read(length)
 
 			require 'base64'
@@ -372,7 +371,7 @@ module MSBIN
 		define_with_endelement
 
 		def initialize(handle, record_type)
-			length = handle.read(4).unpack("l")[0]
+			length = read_int32(handle)
 			bytes = handle.read(length)
 
 			require 'base64'

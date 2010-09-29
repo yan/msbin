@@ -1,21 +1,5 @@
 #!/usr/bin/env ruby
 
-def read_byte(handle)
-   return handle.read(1)[0]
-end
-
-# TODO: bundle these in a module
-def read_int31(handle)
-	val = 0
-	pow = 1
-	begin
-		byte = read_byte(handle)
-		val += pow * (byte & 0x7F)
-		pow *= 2**7
-	end while (byte & 0x80) == 0x80
-	return val	
-end
-
 def read_long(handle)
    return handle.read(4).unpack('L').first
 end
@@ -25,6 +9,43 @@ def read_string(handle)
    str = handle.read(len)
 	return str
 end
+
+def read_int8(handle)
+	return handle.read(1)[0]
+end
+
+def read_int16(handle)
+	return handle.read(2).unpack("n").first
+end
+
+# TODO: bundle these in a module
+def read_int31(handle)
+	val = 0
+	pow = 1
+	begin
+		byte = read_int8(handle)
+		val += pow * (byte & 0x7F)
+		pow *= 2**7
+	end while (byte & 0x80) == 0x80
+	return val	
+end
+
+def read_int32(handle)
+	return handle.read(4).unpack("L").first
+end
+
+def read_float(handle)
+	return handle.read(4).unpack("g").first
+end
+
+def read_int64(handle)
+	return handle.read(8).unpack("Q").first
+end
+
+def read_double(handle)
+	return handle.read(8).unpack("E").first
+end
+
 
 def read_dictstring(handle)
 	val = read_int31(handle)
@@ -43,7 +64,7 @@ module MSBIN
 				@@records << klass
 			end
 	
-			# Document this
+			# TODO: Document this
 			def define_with_endelement
 				record_type = self.record_type
 				c = Class.new(self) do
@@ -69,7 +90,7 @@ module MSBIN
 			end
 	
 			def MakeRecord(handle)
-				record_type = read_byte(handle)
+				record_type = read_int8(handle)
 				klass = @@records.find{|klass| klass.record_type === record_type}
 				if not klass
 					raise "Unsupported type: 0x#{record_type.to_s(16)}"
@@ -92,7 +113,7 @@ module MSBIN
 			@attributes = []
 			loop do
 				where = handle.pos
-				next_type = read_byte(handle)
+				next_type = read_int8(handle)
 				handle.seek(where)
 
 				break if not Record.is_attribute? next_type

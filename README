@@ -5,7 +5,13 @@ All types should be implemented, but not all are tested.
 
 To use:
 	./msbin.rb file.msbin
-	./msbin.rb - 
+	./msbin.rb -
 
 Where file.msbin can be a file saved from burp using the 'copy to file'
 or a straight binary XML dump.
+
+
+For more information, see the following design docs:
+
+http://msdn.microsoft.com/en-us/library/cc219210(PROT.10).aspx
+http://msdn.microsoft.com/en-us/library/cc219175(PROT.10).aspx

@@ -53,16 +53,9 @@ end
 
 $element_stack = []
 
-	class Class
-		def make_this_with_endelement
-			cls = Class.new(self) do
-			end
-			puts cls.methods
-			Object.constant_set "TestTest", cls
-			puts "!!", self.record_type, cls, self.name
-			#cls = Class.new(
-		end
-	end
+class Class
+end
+
 module MSBIN
 
 	class Record
@@ -75,6 +68,17 @@ module MSBIN
 				@@records << klass
 			end
 	
+			# Document this
+			def define_with_endelement
+				record_type = self.record_type
+				c = Class.new(self) do
+					@record_type = record_type+1
+				end
+
+				name = self.name.split(':').last+"WithEndElement"
+				MSBIN.const_set name, c
+			end
+
 			def is_attribute?(type)
 				nil != @@records.find {|klass| klass.ancestors.include? Attribute and klass.record_type === type}
 			end
@@ -168,7 +172,7 @@ module MSBIN
 	class ShortAttribute < Record
 		@record_type = 0x04
 
-		make_this_with_endelement
+		self.make_this_with_endelement
 
 		def initialize(handle, record_type)
 			@name = read_string(handle)

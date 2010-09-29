@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 
-require 'records'
+#require 'records'
 require 'types'
 
 if ARGV.size == 0

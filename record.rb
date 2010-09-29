@@ -1,5 +1,7 @@
 #!/usr/bin/env ruby
 
+require 'records'
+
 def read_long(handle)
    return handle.read(4).unpack('L').first
 end
@@ -15,7 +17,7 @@ def read_int8(handle)
 end
 
 def read_int16(handle)
-	return handle.read(2).unpack("n").first
+	return handle.read(2).unpack("s").first
 end
 
 # TODO: bundle these in a module
@@ -80,6 +82,10 @@ module MSBIN
 					klass.ancestors.include? Attribute and klass.record_type === type
 				end
 			end
+
+			def record_type_to_class(record_type)
+				@@records.find{|klass| klass.record_type === record_type}
+			end
 	
 			def DecodeStream(handle)
 				while !handle.eof()
@@ -91,7 +97,7 @@ module MSBIN
 	
 			def MakeRecord(handle)
 				record_type = read_int8(handle)
-				klass = @@records.find{|klass| klass.record_type === record_type}
+				klass = self.record_type_to_class(record_type)
 				if not klass
 					raise "Unsupported type: 0x#{record_type.to_s(16)}"
 				end

@@ -6,11 +6,12 @@ require 'attributes'
 require 'text'
 
 $indent = -1
-def write_xml(s, increase=1)
-	indent = "  "*$indent
-	puts "#{indent}#{s}"
+def write_xml(s, increase=1, no_indent=false)
+	indent = "  "*$indent if $indent >= 0
+	indent = "" if no_indent
+	print "#{indent}#{s}\n"
 	if s.class.to_s =~ /WithEndElement$/
-		puts "#{indent}</#{$element_stack.pop.name}>"
+		print "#{indent}</#{$element_stack.pop.name}>\n"
 		increase = -1
 	end
 	$indent += increase	
@@ -40,7 +41,11 @@ module MSBIN
 		@record_type = 0x01
 
 		def to_s
-			"</#{$element_stack.pop.name}>"
+			if !$element_stack.empty?
+				"</#{$element_stack.pop.name}>"
+			else
+				""
+			end
 		end
 	end
 
@@ -53,15 +58,25 @@ module MSBIN
 	end
 
 	# TODO: Implement Array
+	# Array is extremely hacky since it writes to output directly
 	class ArrayElement < Element
 		@record_type = 0x03
-		@records = {
-			0xb5 => "Bool"
-		}
 
 		def initialize(handle, record_type)
-			element = Record.MakeRecord(handle)
-			raise "Array not implemented yet"
+			# reset element stack
+			element = Record.MakeRecord(handle);
+			$element_stack.pop
+			endelement = Record.MakeRecord(handle)
+
+			type = read_int8(handle)
+			length = read_int31(handle)
+
+			cls = Record.record_type_to_class(type)
+			length.times do |idx|
+				$element_stack.push element
+				write_xml(element, 1)
+				write_xml(cls.new(handle, type), -1)#, no_indent=true)
+			end
 		end
 	end
 
@@ -80,7 +95,7 @@ module MSBIN
 		end
 
 		def to_s
-			attribs = @attributes ? " #{@attributes}" : ""
+			attribs = @attributes.empty? ? "" : " #{@attributes}"
 			"<#{@name}#{attribs}>"
 		end
 	end
@@ -107,7 +122,7 @@ module MSBIN
 		end
 
 		def to_s
-			attribs = @attributes ? " #{@attributes}" : ""
+			attribs = @attributes.empty? ? "" : " #{@attributes}"
 			"<#{(?a+@record_type-self.class.record_type.first).chr}:#{@name}#{attribs}>"
 		end
 	end
@@ -126,7 +141,7 @@ module MSBIN
 		end
 
 		def to_s
-			attribs = @attributes ? " #{@attributes}" : ""
+			attribs = @attributes.empty? ? "" : " #{@attributes}"
 			"<#{@name}#{attribs}>"
 		end
 	end
@@ -142,8 +157,9 @@ module MSBIN
 		end
 
 		def to_s
-			attribs = @attributes ? " #{@attributes}" : ""
+			attribs = @attributes.empty? ? "" : " #{@attributes}"
 			"<#{@prefix}:#{@name}#{attribs}>"
 		end
 	end
 end
+

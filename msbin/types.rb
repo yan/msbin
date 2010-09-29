@@ -1,9 +1,9 @@
 #!/usr/bin/env ruby
 
-require 'msbin_types'
-require 'record'
-require 'attributes'
-require 'text'
+require 'msbin/msbin_types'
+require 'msbin/record'
+require 'msbin/attributes'
+require 'msbin/text'
 
 $indent = -1
 def write_xml(s, increase=1, no_indent=false)

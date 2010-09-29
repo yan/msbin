@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 
-require 'records'
+require 'msbin/records'
 
 def read_long(handle)
    return handle.read(4).unpack('L').first

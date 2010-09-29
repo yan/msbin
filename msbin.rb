@@ -1,18 +1,13 @@
 #!/usr/bin/env ruby
 
-#require 'records'
-require 'types'
+require 'msbin/types'
 
 if ARGV.size == 0
 	$stderr.write("Usage: #{$0} [file.msbin|-]\n")
 	exit 1
 end
 
-if ARGV[0] == '-'
-	f = $stdin
-else
-	f = File.new(ARGV[0], "rb")
-end
+f = ARGV[0] == '-' ? $stdin : File.new(ARGV[0], "rb")
 
 # check if we have an http post, and consume headers
 if f.read(4) == "HTTP"
@@ -22,4 +17,3 @@ else
 end
 
 MSBIN::Record.DecodeStream(f)
-#puts f

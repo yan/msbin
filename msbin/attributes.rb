@@ -1,4 +1,4 @@
-require 'record'
+require 'msbin/record'
 
 module MSBIN
 	class ShortAttribute < Record

@@ -61,6 +61,7 @@ end
 module MSBIN
 	class Record
 		@@records = []
+		attr_accessor :children
 
 		class << self
 			attr_accessor :record_type
@@ -74,6 +75,9 @@ module MSBIN
 				record_type = self.record_type
 				c = Class.new(self) do
 					@record_type = record_type+1
+					def is_endelement?
+						return true
+					end
 				end
 
 				name = self.name.split(':').last+"WithEndElement"
@@ -91,9 +95,35 @@ module MSBIN
 			end
 	
 			def DecodeStream(handle)
+				element_stack = []
 				while !handle.eof()
 					a = MakeRecord(handle)
-					indent = a.class == EndElement ? -1 : 0
+					if not a.is_endelement?
+						indent = 0
+						element_stack.push a
+					else
+						ended = element_stack.pop
+						puts "Adding #{a} to #{ended}"
+						if not ended.children # this is hacky, default children to an empty arr
+							ended.children = []
+						end
+						ended.children.push a
+
+						if a.class.name =~ /WithEndElement$/
+							element_stack.push ended
+							puts "Again"
+							ended = element_stack.pop
+							if not element_stack.last.children
+								element_stack.last.children = []
+							end
+							puts "Adding #{ended} to #{element_stack.last}"
+							element_stack.last.children << ended
+						end
+						#element_stack.last.children << 
+						indent = -1
+					end
+			
+					#element_stack.push(a)
 					write_xml a, indent
 				end
 			end
@@ -131,6 +161,9 @@ module MSBIN
 		end
 		def type_of?(type)
 			raise NotImplementedError
+		end
+		def is_endelement?
+			return self.instance_of?(EndElement)
 		end
 	end
 end
